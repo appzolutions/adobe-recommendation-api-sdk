@@ -1,0 +1,98 @@
+const axios = require('axios');
+require('dotenv').config();
+
+class AdobeRecommendationSDK {
+  constructor() {
+    this.accessToken = null;
+    this.clientId = process.env.ADOBE_CLIENT_ID;
+    this.clientSecret = process.env.ADOBE_CLIENT_SECRET;
+    this.tokenEndpoint = 'https://ims-na1.adobelogin.com/ims/exchange/jwt/';
+    this.apiEndpoint = 'https://mc.adobe.io/recommendations/';
+    this.requestQueue = [];
+    this.isRateLimited = false;
+    this.rateLimitInterval = 60 * 1000; // 60 seconds
+    this.requestCount = 0;
+    this.rateLimit = 50;
+    this.rateLimitTimer = null;
+  }
+
+  async getAccessToken() {
+    try {
+      const response = await axios.post(this.tokenEndpoint, {
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        jwt_token: 'your_jwt_token' // Replace with your JWT token
+      });
+      this.accessToken = response.data.access_token;
+      return this.accessToken;
+    } catch (error) {
+      console.error('Error fetching access token:', error.message);
+      throw error;
+    }
+  }
+
+  async makeApiRequest(method, path, data = {}) {
+    if (!this.accessToken) {
+      await this.getAccessToken();
+    }
+
+    if (this.isRateLimited) {
+      await this.addToRequestQueue(method, path, data);
+      return;
+    }
+
+    try {
+      const response = await axios({
+        method,
+        url: this.apiEndpoint + path,
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        data
+      });
+      this.requestCount++;
+      this.checkRateLimit();
+      return response.data;
+    } catch (error) {
+      console.error(`Error making ${method} request to ${path}:`, error.message);
+      throw error;
+    }
+  }
+
+  async addToRequestQueue(method, path, data) {
+    this.requestQueue.push({ method, path, data });
+  }
+
+  async processRequestQueue() {
+    if (this.requestQueue.length === 0) return;
+    const { method, path, data } = this.requestQueue.shift();
+    await this.makeApiRequest(method, path, data);
+    setTimeout(() => this.processRequestQueue(), this.rateLimitInterval / this.rateLimit);
+  }
+
+  checkRateLimit() {
+    if (this.requestCount >= this.rateLimit) {
+      this.isRateLimited = true;
+      this.rateLimitTimer = setTimeout(() => {
+        this.isRateLimited = false;
+        this.requestCount = 0;
+        this.processRequestQueue();
+      }, this.rateLimitInterval);
+    }
+  }
+
+  async getRecommendations(userId, context) {
+    try {
+      const response = await this.makeApiRequest('get', `v1/recommendations/${userId}`, { context });
+      return response;
+    } catch (error) {
+      console.error('Error fetching recommendations:', error.message);
+      throw error;
+    }
+  }
+
+  // Add more methods for other API endpoints as needed
+}
+
+module.exports = AdobeRecommendationSDK;
