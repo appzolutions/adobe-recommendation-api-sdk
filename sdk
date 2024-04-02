@@ -68,7 +68,12 @@ class AdobeRecommendationSDK {
     if (this.requestQueue.length === 0) return;
     const { method, path, data } = this.requestQueue.shift();
     await this.makeApiRequest(method, path, data);
-    setTimeout(() => this.processRequestQueue(), this.rateLimitInterval / this.rateLimit);
+    await this.delay(this.rateLimitInterval / this.rateLimit);
+    await this.processRequestQueue();
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   checkRateLimit() {
